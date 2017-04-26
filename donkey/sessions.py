@@ -1,6 +1,18 @@
+''' 
+sessions.py
+
+Class to simplify how data is saved while recording.
+
+TODO: This should be merged with the dataset abstraction and made into
+something like ROSBAGS. 
+
+'''
+
 import os
 import time
+import itertools
 import numpy as np
+import h5py
 from PIL import Image
 from skimage import exposure
 
@@ -15,9 +27,8 @@ class Session():
     '''
 
     def __init__(self, path):
-        print('Loading Session')
+        print('Loading Session: %s' %path)
         self.session_dir = path
-
         self.frame_count = 0
 
     def put(self, img, angle=None, throttle=None, milliseconds=None):
@@ -25,38 +36,16 @@ class Session():
         ''' 
         Save image with encoded angle, throttle and time data in the filename
         '''
-
         self.frame_count += 1
-
-        file_name = str("%s/" % self.session_dir +
-                        "frame_" + str(self.frame_count).zfill(5) +
-                        "_ttl_" + str(throttle) +
-                        "_agl_" + str(angle) +
-                        "_mil_" + str(milliseconds) +
-                        '.jpg')
-
-        img.save(file_name, 'jpeg')
+        filepath = create_img_filepath(self.session_dir, self.frame_count, angle, throttle, milliseconds)
+        img.save(filepath, 'jpeg')
 
 
     def get(self, file_path):
         ''' 
         Retrieve an image and the data saved with it.
         '''
-
-        with Image.open(file_path) as img:
-            img_arr = np.array(img)
-        
-        
-        f = file_path.split('/')[-1]
-        f = f.split('.')[0]
-        f = f.split('_')
-
-        throttle = int(f[3])
-        angle = int(f[5])
-        milliseconds = int(f[7])
-        
-        data = {'throttle':throttle, 'angle':angle, 'milliseconds': milliseconds} 
-        
+        img_arr, data = load_frame(file_path)
         return img_arr, data
 
 
@@ -64,18 +53,15 @@ class Session():
         """ 
         Returns a list of file paths for the images in the session. 
         """
-        files = os.listdir(self.session_dir)
-        files = [f for f in files if f[-3:] =='jpg']
-        files.sort()
-        file_paths = [os.path.join(self.session_dir, f) for f in files]
-        return file_paths
+        imgs = img_paths(self.session_dir)
+        return imgs
 
 
     def img_count(self):
         return len(self.img_paths())
 
 
-    def load_dataset(self, img_paths=None):
+    def load_dataset(self, angle_only=True):
         '''
         Returns image arrays and data arrays.
 
@@ -85,76 +71,9 @@ class Session():
 
             Where n is the number of recorded images.
         '''
-
-        gen = self.load_generator(img_paths=img_paths)
-
-        X = [] #images
-        Y = [] #velocity (angle, speed)
-        for _ in range(self.img_count()):
-            x, y = next(gen)
-            X.append(x)
-            Y.append(y)
-            
-        X = np.array(X) #image array [[image1],[image2]...]
-        Y = np.array(Y) #array [[angle1, speed1],[angle2, speed2] ...]
+        X, Y = load_dataset(self.img_paths())
 
         return X, Y
-
-
-    def load_generator(self, img_paths=None, add_dim=False):
-        ''' 
-        Rerturn a generator that will loops through image arrays and data labels.
-        
-        add_dim: add dimension to returned arrays as needed by keras 
-        ''' 
-        if img_paths == None:
-            img_paths = self.img_paths()
-
-        while True:
-            for f in img_paths:
-                
-                img_arr, data = self.get(f)
-                
-                
-                #return only angle for now
-                data_arr = np.array(data['angle'])
-
-                if add_dim == True:
-                    data_arr = data_arr.reshape((1,) + data_arr.shape)
-                    img_arr = img_arr.reshape((1,) + img_arr.shape)
-
-                yield img_arr, data_arr
-
-
-
-
-    def variant_generator(self, img_paths, variant_funcs):
-
-        def orient(arr, flip=False):
-            if flip == False:
-                return arr
-            else: 
-                return np.fliplr(arr)
-        
-        print('images before variants %s' % len(img_paths))
-
-        while True:
-            for flip in [True, False]:
-                for v in variant_funcs:
-                    for img_path in img_paths:
-                        img = Image.open(img_path)
-                        img = np.array(img)
-                        img =  v['func'](img, **v['args'])
-                        img = orient(img, flip=flip)
-                        angle, speed = self.parse_file_name(img_path)
-                        if flip == True: 
-                            angle = -angle #reverse stering angle
-                        y = np.array([angle, speed])
-                        x = np.expand_dims(x, axis=0)
-                        y = y.reshape(1, 2)
-                        yield x, y
-
-
 
 
 
@@ -220,7 +139,82 @@ class SessionHandler():
         return session_full_path
 
 
-def pickle_sessions(sessions_folder, session_names, file_path):
+
+
+def img_paths(folder):
+    """ 
+    Returns a list of file paths for the images in the session. 
+    """
+    files = os.listdir(folder)
+    files = [f for f in files if f[-3:] =='jpg']
+    files.sort()
+    file_paths = [os.path.join(folder, f) for f in files]
+    return file_paths
+
+
+def load_frame(file_path):
+    ''' 
+    Retrieve an image and its telemetry data.
+    '''
+
+    with Image.open(file_path) as img:
+        img_arr = np.array(img)
+
+    data = dk.sessions.parse_img_filepath(file_path)
+
+    return img_arr, data
+
+
+def frame_generator(img_paths):
+    ''' 
+    Generator that loops through image arrays and their telemetry data. 
+    ''' 
+    while True:
+        for f in img_paths:
+
+            img_arr, data = load_frame(f)
+
+            #return only angle for now
+            data_arr = np.array([data['angle'], data['throttle']])
+            yield img_arr, data_arr
+
+
+def batch_generator(img_paths, batch_size=32):
+    '''
+    Generator that returns batches of X, Y data.
+    '''
+    frame_gen = frame_generator(img_paths)
+
+    while True:
+        
+        X, Y = [], []
+        for _ in range(batch_size):
+            x, y = next(frame_gen)
+            X.append(x)
+            Y.append(y)
+
+        X = np.array(X)
+        Y = np.array(Y)
+
+        yield X, Y
+
+
+def load_dataset(img_paths):
+    '''
+    Returns image arrays and data arrays.
+
+        X - array of n samples of immage arrays representing.  
+        Y - array with the shape (samples, 1) containing the 
+            angle lable for each image
+
+        Where n is the number of recorded images.
+    '''
+    batch_gen = batch_generator(img_paths, batch_size=len(img_paths))
+    X, Y = next(batch_gen)
+    return X, Y
+
+
+def sessions_to_dataset(session_names):
 
     '''
     Combine, pickle and safe session data to a file. 
@@ -230,7 +224,7 @@ def pickle_sessions(sessions_folder, session_names, file_path):
     'file_path' name of the pickled file that will be saved
     '''
 
-    sh = dk.sessions.SessionHandler(sessions_folder)
+    sh = dk.sessions.SessionHandler(dk.config.sessions_path)
 
     X = []
     Y = []
@@ -243,6 +237,53 @@ def pickle_sessions(sessions_folder, session_names, file_path):
 
     X = np.concatenate(X)
     Y = np.concatenate(Y)
+    return X, Y
 
-    with open(file_path, 'wb') as f:
-        pkl = pickle.dump((X,Y), f)
+
+def dataset_to_hdf5(X, Y, file_path):
+    print('Saving HDF5 file to %s' %file_path)
+    f = h5py.File(file_path, "w")
+    f.create_dataset("X", data=X)
+    f.create_dataset("Y", data=Y)
+    f.close()
+    
+
+def hdf5_to_dataset(file_path):
+    f = h5py.File(file_path, "r")
+    X = np.array(f['X'])
+    Y = np.array(f['Y'])
+    return X, Y
+
+
+def parse_img_filepath(filepath):
+    f = filepath.split('/')[-1]
+    f = f[:-4] #remove ".jpg"
+    f = f.split('_')
+
+    throttle = round(float(f[3]), 2)
+    angle = round(float(f[5]), 2)
+    milliseconds = round(float(f[7]))
+    
+    data = {'throttle':throttle, 'angle':angle, 'milliseconds': milliseconds} 
+    return data
+
+
+def create_img_filepath(directory, frame_count, angle, throttle, milliseconds):
+    filepath = str("%s/" % directory +
+                "frame_" + str(frame_count).zfill(5) +
+                "_ttl_" + str(throttle) +
+                "_agl_" + str(angle) +
+                "_mil_" + str(milliseconds) +
+                '.jpg')
+    return filepath
+
+
+
+
+def param_gen(params):
+    '''
+    Accepts a dictionary of parameter options and returns 
+    a list of dictionary with the permutations of the parameters.
+    '''
+    for p in itertools.product(*params.values()):
+        yield dict(zip(params.keys(), p ))
