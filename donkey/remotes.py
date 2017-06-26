@@ -17,6 +17,7 @@ import numpy as np
 import requests
 import tornado.ioloop
 import tornado.web
+import tornado.gen
 
 from PIL import Image
 
@@ -143,7 +144,6 @@ class RemoteClient():
         throttle = float(data['throttle'])
         drive_mode = str(data['drive_mode'])
         
-
         return angle, throttle, drive_mode
 
 
@@ -157,7 +157,7 @@ class DonkeyPilotApplication(tornado.web.Application):
         the web handlers.
         '''
 
-        print('hello')
+        print('Starting Donkey Server...')
         if not os.path.exists(os.path.expanduser(mydonkey_path)):
             raise ValueError('Could not find mydonkey folder. Please run "python scripts/setup.py"')
 
@@ -202,6 +202,7 @@ class DonkeyPilotApplication(tornado.web.Application):
 
 
             (r"/sessions/", SessionListView),
+            (r"/sessions/?(?P<session_id>[^/]+)?/?(?P<page>[^/]+)?/download", SessionDownload),
 
             (r"/sessions/?(?P<session_id>[^/]+)?/?(?P<page>[^/]+)?", 
                 SessionView),
@@ -485,7 +486,6 @@ class SessionView(tornado.web.RequestHandler):
     def get(self, session_id, page):
         '''
         Shows all the images saved in the session. 
-        TODO: Add pagination.
         '''    
         from operator import itemgetter
 
@@ -511,6 +511,7 @@ class SessionView(tornado.web.RequestHandler):
         data = {'session': session, 'page_list': page_list, 'this_page':page}
         self.render("templates/session.html", **data)
 
+
     def post(self, session_id, page):
         ''' 
         Deletes selected images 
@@ -525,10 +526,33 @@ class SessionView(tornado.web.RequestHandler):
 
             for i in data['imgs']:
                 os.remove(os.path.join(path, i))
-                print('%s removed' %i)
+                #print('%s removed' %i)
 
+#@tornado.gen.coroutine
+class SessionDownload(tornado.web.RequestHandler):
 
-
+    def get(self, session_id, page):
+        sessions_path = self.application.sessions_path
+        session_path = os.path.join(sessions_path, session_id)
+        
+        zip_path = os.path.join(sessions_path, session_id + '.zip')
+        dk.utils.zip_dir(session_path, zip_path)
+                
+        self.set_header('Content-Type', 'application/force-download')
+        self.set_header('Content-Disposition', 'attachment; filename=%s' % session_id+ ".zip")    
+        with open(zip_path, "rb") as f:
+            #try:
+            while True:
+                _buffer = f.read(4096)
+                if _buffer:
+                    self.write(_buffer)
+                else:
+                    f.close()
+                    self.finish()
+                    return
+            #except:
+            #    raise HTTPError(404)
+        raise HTTPError(500)
 
 
 
