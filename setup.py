@@ -1,12 +1,63 @@
 from setuptools import setup, find_packages
 
-setup(name='donkey',
-    version='0.01',
-    description='A library for small scale DIY self driving cars',
-    url='https//github.com/wroscoe/donkey',
+import os
+
+#include the non python files
+def package_files(directory, strip_leading):
+    paths = []
+    for (path, directories, filenames) in os.walk(directory):
+        for filename in filenames:
+            package_file = os.path.join(path, filename)
+            paths.append(package_file[len(strip_leading):])
+    return paths
+
+car_templates=['templates/*']
+web_controller_html = package_files('donkeycar/parts/web_controller/templates', 'donkeycar/')
+
+extra_files = car_templates + web_controller_html
+print('extra_files', extra_files)
+
+
+setup(name='donkeycar',
+    version='2.2.1',
+    description='Self driving library for python.',
+    url='https://github.com/wroscoe/donkey',
+    download_url='https://github.com/wroscoe/donkey/archive/2.1.5.tar.gz',
     author='Will Roscoe',
     author_email='wroscoe@gmail.com',
     license='MIT',
+    entry_points={
+        'console_scripts': [
+            'donkey=donkeycar.management.base:execute_from_command_line',
+        ],
+    },
+    install_requires=['numpy', 
+                      'pillow',
+                      'docopt',
+                      'tornado==4.5.3',
+                      'requests',
+                      'keras==2.0.8',
+                      'h5py',
+                      'python-socketio',
+                      'flask',
+                      'eventlet',
+                      'moviepy',
+                      'pandas',
+                      'tensorflow>=1.1'
+                     ],
+
+    extras_require={
+                    'pi': [
+                        'picamera',
+                        'Adafruit_PCA9685',
+                        ],
+                    'dev': ['pytest']
+                    },
+    package_data={
+        'donkeycar': extra_files, 
+        },
+
+    include_package_data=True,
 
     classifiers=[
         # How mature is this project? Common values are
@@ -25,34 +76,11 @@ setup(name='donkey',
         # Specify the Python versions you support here. In particular, ensure
         # that you indicate whether you support Python 2, Python 3 or both.
 
-        'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
     ],
     keywords='selfdriving cars drive',
 
-    install_requires=['numpy', 
-                      'pillow',
-                      'docopt',
-                      'tornado',
-                      'requests',
-                      'envoy',
-                     ],
-
-    extras_require={'server': [
-                        'keras',
-                        'h5py',
-                        'scikit-image',
-                        'opencv-python',
-                        'pandas',
-                        'tensorflow',
-                        ],
-                    'pi': [
-                        'picamera',
-                        'Adafruit_PCA9685',
-                        ]
-                    },
-
-    packages=find_packages(exclude=(['tests', 'docs', 'env'])),
+    packages=find_packages(exclude=(['tests', 'docs', 'site', 'env'])),
 )

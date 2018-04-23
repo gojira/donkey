@@ -1,37 +1,57 @@
-# Donkey: a self driving library and control platform for small scale DIY vehicles. 
+# donkeycar: a python self driving library 
 
-Donkey is minimalist and modular self driving library written in Python. It is developed for hobbiests with a focus on allowing fast experimentation and easy community contributions.  
+[![CircleCI](https://circleci.com/gh/wroscoe/donkey.svg?style=svg)](https://circleci.com/gh/wroscoe/donkey)
 
-### [Build a Donkey Car.](http://www.donkeycar.com) ($200 + 2 hours)
+Donkeycar is minimalist and modular self driving library for Python. It is 
+developed for hobbiests and students with a focus on allowing fast experimentation and easy 
+community contributions.  
+
+#### Quick Links
+* [Donkeycar Updates & Examples](http://donkeycar.com)
+* [Build instructions and Software documentation](http://docs.donkeycar.com)
+* [Slack / Chat](https://donkey-slackin.herokuapp.com/)
+
+![donkeycar](./docs/assets/build_hardware/donkey2.PNG)
 
 #### Use Donkey if you want to:
 * Make an RC car drive its self.
-* Compete in self driving races like [DIY Robocars](diyrobocars.com)
-* Use existing autopilots to drive your car.
-* Use community datasets to create, improve and test autopilots that other people can use.  
+* Compete in self driving races like [DIY Robocars](http://diyrobocars.com)
+* Experiment with autopilots, mapping computer vision and neural networks.
+* Log sensor data. (images, user inputs, sensor readings) 
+* Drive your car via a web or game controler.
+* Leverage community contributed driving data.
+* Use existing harsupport
+supportdware CAD designs for upgrades.
+
+### Getting driving. 
+After building a Donkey2 you can turn on your car and go to http://localhost:8887 to drive.
+
+### Modify your cars behavior. 
+The donkey car is controlled by running a sequence of events
+
+```python
+#Define a vehicle to take and record pictures 10 times per second.
+
+from donkeycar import Vehicle
+from donkeycar.parts.camera import PiCamera
+from donkeycar.parts.datastore import Tub
 
 
-#### Features:
-* Data logging of image, steering angle, & throttle outputs. 
-* Wifi car controls (a virtual joystic).
-* Community contributed driving data and autopilots.
-* Hardware CAD designs for optional upgrades.
+V = Vehicle()
 
+#add a camera part
+cam = PiCamera()
+V.add(cam, outputs=['image'], threaded=True)
 
-### Drive your car
-Once you have built your car and it's connected to the same wifi as your computer.
+#add tub part to record images
+tub = Tub(path='~/d2/gettings_started', 
+          inputs=['image'], 
+          types=['image_array'])
+V.add(tub, inputs=['image'])
 
-1. Open a terminal and clone the donkey repo: `git clone https://github.com/wroscoe/donkey`
-2. Start the default pilot server using docker: `bash start-server.py`
-3. Open a new terminal and find your car's Raspberry Pi's IP address: `python scripts/find_car.py` 
-4. SSH to your car's Raspberry Pi: `ssh pi@<your pi's ip address>` (default password = raspberry) 
-5. Start your car's driver loop: `python scripts/drive.py  --remote http://<your computers ip address>:8887`
-6. Turn on your car.
-7. Go to `<your_pilot_server_ip>:8887` on your phone or computer to start driving your car. 
+#start the drive loop at 10 Hz
+V.start(rate_hz=10)
+```
 
- 
-
-
-
-
-
+See [home page](http://donkeycar.com), [docs](http://docs.donkeycar.com) 
+or join the [Slack channel](http://www.donkeycar.com/community.html) to learn more.
